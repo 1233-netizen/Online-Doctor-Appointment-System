@@ -20,17 +20,27 @@ mongo_db = client[os.getenv("MONGO_DB_NAME")]
 activity_logs = mongo_db["activity_logs"]
 
 
-def log_activity(event_type, patient_id, description, appointment_id=None):
 
+def log_activity(
+    event_type,
+    patient_id,
+    description,
+    appointment_id=None,
+    patient_name=None,
+    doctor_name=None
+):
     log = {
         "event_type": event_type,
         "patient_id": patient_id,
+        "patient_name": patient_name,
+        "doctor_name": doctor_name,
         "appointment_id": appointment_id,
         "description": description,
         "created_at": datetime.now(timezone.utc)
     }
 
     activity_logs.insert_one(log)
+
 
 
 # Test connection

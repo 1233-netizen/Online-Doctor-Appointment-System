@@ -11,13 +11,23 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "Frontend")
 
 # Function to save activity in MongoDB
-def save_activity(event_type, patient_id, description, appointment_id=None):
+# Function to save activity in MongoDB
+def save_activity(
+    event_type,
+    patient_id,
+    description,
+    appointment_id=None,
+    patient_name=None,
+    doctor_name=None
+):
     try:
         log_activity(
             event_type,
             patient_id,
             description,
-            appointment_id
+            appointment_id,
+            patient_name,
+            doctor_name
         )
     except Exception as e:
         print("MongoDB logging error:", e)
@@ -305,14 +315,35 @@ def book_appointment():
         """, (slot_id,))
 
         # Save all changes in MySQL
+        # Save all changes in MySQL
+        # Save all changes in MySQL
         db.commit()
+
+        # Get patient and doctor names for MongoDB
+        cursor.execute("""
+            SELECT
+                p.full_name AS patient_name,
+                d.full_name AS doctor_name
+            FROM appointments a
+            JOIN patients p
+                ON a.patient_id = p.patient_id
+            JOIN doctor_slots ds
+                ON a.slot_id = ds.slot_id
+            JOIN doctors d
+                ON ds.doctor_id = d.doctor_id
+            WHERE a.appointment_id = %s
+        """, (appointment_id,))
+
+        booking_details = cursor.fetchone()
 
         # Save booking activity in MongoDB
         save_activity(
             "BOOKING",
             patient_id,
             "Appointment booked successfully",
-            appointment_id
+            appointment_id,
+            booking_details["patient_name"],
+            booking_details["doctor_name"]
         )
 
         return jsonify({
