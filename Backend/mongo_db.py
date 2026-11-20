@@ -50,3 +50,4 @@ try:
 
 except Exception as e:
     print("MongoDB connection failed:", e)
+ion failed:", e)
