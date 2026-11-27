@@ -1,17 +1,21 @@
 
 from flask import Flask, jsonify, request, send_from_directory
 import os
+
 from db import get_db_connection
 from werkzeug.security import generate_password_hash, check_password_hash
 from mysql.connector import Error
 from mongo_db import log_activity
-    
+
+
 app = Flask(__name__)
+
+# Locate the Frontend folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "Frontend")
 
-# Function to save activity in MongoDB
-# Function to save activity in MongoDB
+
+# Function to save activities in MongoDB
 def save_activity(
     event_type,
     patient_id,
@@ -29,56 +33,69 @@ def save_activity(
             patient_name,
             doctor_name
         )
+
     except Exception as e:
         print("MongoDB logging error:", e)
 
 
-# Home route
+# Display the frontend home page
 @app.route("/")
 def home():
     return send_from_directory(FRONTEND_DIR, "index.html")
 
 
+# Load frontend CSS and JavaScript files
 @app.route("/frontend/<path:filename>")
 def frontend_files(filename):
     return send_from_directory(FRONTEND_DIR, filename)
 
-# Display all doctors
+
+# --------------------------------------------------
+# 1. DISPLAY ALL DOCTORS
+# --------------------------------------------------
+
 @app.route("/doctors", methods=["GET"])
 def get_doctors():
 
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
-    cursor.execute("""
-        SELECT doctors.doctor_id,
-               doctors.full_name,
-               doctors.qualification,
-               doctors.experience_years,
-               doctors.consultation_fee,
-               specializations.specialization_name
-        FROM doctors
-        JOIN specializations
-        ON doctors.specialization_id =
-           specializations.specialization_id
-    """)
+    try:
+        cursor.execute("""
+            SELECT doctors.doctor_id,
+                   doctors.full_name,
+                   doctors.qualification,
+                   doctors.experience_years,
+                   doctors.consultation_fee,
+                   specializations.specialization_name
+            FROM doctors
+            JOIN specializations
+            ON doctors.specialization_id =
+               specializations.specialization_id
+        """)
 
-    doctors = cursor.fetchall()
+        doctors = cursor.fetchall()
 
-    cursor.close()
-    db.close()
+        return jsonify(doctors), 200
 
-    return jsonify(doctors)
+    finally:
+        cursor.close()
+        db.close()
 
 
-# Patient registration
+# --------------------------------------------------
+# 2. PATIENT REGISTRATION
+# --------------------------------------------------
+
 @app.route("/register", methods=["POST"])
 def register_patient():
 
     data = request.get_json()
 
     if not data:
-        return jsonify({"message": "Please provide patient details"}), 400
+        return jsonify({
+            "message": "Please provide patient details"
+        }), 400
 
     full_name = data.get("full_name")
     email = data.get("email")
@@ -87,12 +104,13 @@ def register_patient():
     gender = data.get("gender")
     date_of_birth = data.get("date_of_birth")
 
+    # Check required fields
     if not full_name or not email or not phone or not password:
         return jsonify({
             "message": "Name, email, phone and password are required"
         }), 400
 
-    # Hash the password
+    # Hash the password before storing it
     password_hash = generate_password_hash(password)
 
     db = get_db_connection()
@@ -135,32 +153,42 @@ def register_patient():
     except Exception as error:
         db.rollback()
 
+        # Handle duplicate email or phone number
         if getattr(error, "errno", None) == 1062:
             return jsonify({
                 "message": "Email or phone number already exists"
             }), 409
 
-        return jsonify({"message": "Registration failed"}), 500
+        return jsonify({
+            "message": "Registration failed"
+        }), 500
 
     finally:
         cursor.close()
         db.close()
 
 
-# Patient login
+# --------------------------------------------------
+# 3. PATIENT LOGIN
+# --------------------------------------------------
+
 @app.route("/login", methods=["POST"])
 def login_patient():
 
     data = request.get_json()
 
     if not data:
-        return jsonify({"message": "Please provide login details"}), 400
+        return jsonify({
+            "message": "Please provide login details"
+        }), 400
 
     email = data.get("email")
     password = data.get("password")
 
     if not email or not password:
-        return jsonify({"message": "Email and password are required"}), 400
+        return jsonify({
+            "message": "Email and password are required"
+        }), 400
 
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
@@ -173,6 +201,7 @@ def login_patient():
 
         patient = cursor.fetchone()
 
+        # Verify the password hash
         if patient and check_password_hash(
             patient["password_hash"], password
         ):
@@ -204,7 +233,10 @@ def login_patient():
         db.close()
 
 
-# View available appointment slots
+# --------------------------------------------------
+# 4. VIEW AVAILABLE APPOINTMENT SLOTS
+# --------------------------------------------------
+
 @app.route("/slots/<int:doctor_id>", methods=["GET"])
 def get_available_slots(doctor_id):
 
@@ -230,7 +262,7 @@ def get_available_slots(doctor_id):
         cursor.execute(query, (doctor_id,))
         slots = cursor.fetchall()
 
-        # Convert date and time values into strings
+        # Convert date and time values into strings for JSON
         for slot in slots:
             slot["appointment_date"] = str(slot["appointment_date"])
             slot["start_time"] = str(slot["start_time"])
@@ -243,14 +275,19 @@ def get_available_slots(doctor_id):
         db.close()
 
 
-# Book an appointment
+# --------------------------------------------------
+# 5. BOOK AN APPOINTMENT
+# --------------------------------------------------
+
 @app.route("/book-appointment", methods=["POST"])
 def book_appointment():
 
     data = request.get_json()
 
     if not data:
-        return jsonify({"message": "Please provide booking details"}), 400
+        return jsonify({
+            "message": "Please provide booking details"
+        }), 400
 
     patient_id = data.get("patient_id")
     slot_id = data.get("slot_id")
@@ -265,10 +302,10 @@ def book_appointment():
     cursor = db.cursor(dictionary=True)
 
     try:
-        # Start database transaction
+        # Start a MySQL transaction
         db.start_transaction()
 
-        # Check whether patient exists
+        # Check whether the patient exists
         cursor.execute(
             "SELECT patient_id FROM patients WHERE patient_id = %s",
             (patient_id,)
@@ -278,9 +315,11 @@ def book_appointment():
 
         if not patient:
             db.rollback()
-            return jsonify({"message": "Patient not found"}), 404
+            return jsonify({
+                "message": "Patient not found"
+            }), 404
 
-        # Lock the selected slot while booking
+        # Lock the selected slot to prevent simultaneous bookings
         cursor.execute("""
             SELECT slot_id, slot_status
             FROM doctor_slots
@@ -292,13 +331,17 @@ def book_appointment():
 
         if not slot:
             db.rollback()
-            return jsonify({"message": "Appointment slot not found"}), 404
+            return jsonify({
+                "message": "Appointment slot not found"
+            }), 404
 
         if slot["slot_status"] != "AVAILABLE":
             db.rollback()
-            return jsonify({"message": "This slot is already booked"}), 409
+            return jsonify({
+                "message": "This slot is already booked"
+            }), 409
 
-        # Insert appointment
+        # Insert the appointment
         cursor.execute("""
             INSERT INTO appointments
             (patient_id, slot_id, reason, status)
@@ -307,19 +350,17 @@ def book_appointment():
 
         appointment_id = cursor.lastrowid
 
-        # Update slot status
+        # Update the slot status
         cursor.execute("""
             UPDATE doctor_slots
             SET slot_status = 'BOOKED'
             WHERE slot_id = %s
         """, (slot_id,))
 
-        # Save all changes in MySQL
-        # Save all changes in MySQL
-        # Save all changes in MySQL
+        # Commit all changes in MySQL
         db.commit()
 
-        # Get patient and doctor names for MongoDB
+        # Fetch patient and doctor names for MongoDB logging
         cursor.execute("""
             SELECT
                 p.full_name AS patient_name,
@@ -370,14 +411,19 @@ def book_appointment():
         db.close()
 
 
-# Cancel an appointment
+# --------------------------------------------------
+# 6. CANCEL AN APPOINTMENT
+# --------------------------------------------------
+
 @app.route("/cancel-appointment", methods=["PUT"])
 def cancel_appointment():
 
     data = request.get_json()
 
     if not data:
-        return jsonify({"message": "Please provide cancellation details"}), 400
+        return jsonify({
+            "message": "Please provide cancellation details"
+        }), 400
 
     appointment_id = data.get("appointment_id")
     patient_id = data.get("patient_id")
@@ -391,6 +437,7 @@ def cancel_appointment():
     cursor = db.cursor(dictionary=True)
 
     try:
+        # Start a MySQL transaction
         db.start_transaction()
 
         # Find the appointment belonging to this patient
@@ -406,13 +453,29 @@ def cancel_appointment():
 
         if not appointment:
             db.rollback()
-            return jsonify({"message": "Appointment not found"}), 404
+            return jsonify({
+                "message": "Appointment not found"
+            }), 404
 
         if appointment["status"] != "BOOKED":
             db.rollback()
             return jsonify({
                 "message": "This appointment cannot be cancelled"
             }), 400
+
+        # Fetch patient and doctor names for MongoDB logging
+        cursor.execute("""
+            SELECT
+                p.full_name AS patient_name,
+                d.full_name AS doctor_name
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.patient_id
+            JOIN doctor_slots ds ON a.slot_id = ds.slot_id
+            JOIN doctors d ON ds.doctor_id = d.doctor_id
+            WHERE a.appointment_id = %s
+        """, (appointment_id,))
+
+        cancellation_details = cursor.fetchone()
 
         # Lock the corresponding slot
         cursor.execute("""
@@ -426,9 +489,11 @@ def cancel_appointment():
 
         if not slot:
             db.rollback()
-            return jsonify({"message": "Appointment slot not found"}), 404
+            return jsonify({
+                "message": "Appointment slot not found"
+            }), 404
 
-        # Cancel appointment
+        # Update appointment status to CANCELLED
         cursor.execute("""
             UPDATE appointments
             SET status = 'CANCELLED'
@@ -442,6 +507,7 @@ def cancel_appointment():
             WHERE slot_id = %s
         """, (appointment["slot_id"],))
 
+        # Save changes in MySQL
         db.commit()
 
         # Save cancellation activity in MongoDB
@@ -449,7 +515,9 @@ def cancel_appointment():
             "CANCELLATION",
             patient_id,
             "Appointment cancelled successfully",
-            appointment_id
+            appointment_id,
+            patient_name=cancellation_details["patient_name"],
+            doctor_name=cancellation_details["doctor_name"]
         )
 
         return jsonify({
@@ -459,14 +527,20 @@ def cancel_appointment():
 
     except Error:
         db.rollback()
-        return jsonify({"message": "Cancellation failed"}), 500
+
+        return jsonify({
+            "message": "Cancellation failed"
+        }), 500
 
     finally:
         cursor.close()
         db.close()
 
 
-# View patient appointment history
+# --------------------------------------------------
+# 7. VIEW PATIENT APPOINTMENT HISTORY
+# --------------------------------------------------
+
 @app.route("/my-appointments/<int:patient_id>", methods=["GET"])
 def get_patient_appointments(patient_id):
 
@@ -507,9 +581,11 @@ def get_patient_appointments(patient_id):
             appointment["appointment_date"] = str(
                 appointment["appointment_date"]
             )
+
             appointment["start_time"] = str(
                 appointment["start_time"]
             )
+
             appointment["end_time"] = str(
                 appointment["end_time"]
             )
@@ -521,5 +597,6 @@ def get_patient_appointments(patient_id):
         db.close()
 
 
+# Run the Flask application
 if __name__ == "__main__":
     app.run(debug=True)
