@@ -4,23 +4,22 @@ from datetime import datetime, timezone
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Load environment variables
+# Find the main project folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENV_PATH = os.path.join(BASE_DIR, ".env")
 
+# Load environment variables from .env
+ENV_PATH = os.path.join(BASE_DIR, ".env")
 load_dotenv(ENV_PATH)
 
 # Connect to MongoDB
 client = MongoClient(os.getenv("MONGO_URI"))
 
-# Select database
+# Select the database and collection
 mongo_db = client[os.getenv("MONGO_DB_NAME")]
-
-# Activity logs collection
 activity_logs = mongo_db["activity_logs"]
 
 
-
+# Function to save patient activities in MongoDB
 def log_activity(
     event_type,
     patient_id,
@@ -39,15 +38,15 @@ def log_activity(
         "created_at": datetime.now(timezone.utc)
     }
 
+    # Insert the activity record into MongoDB
     activity_logs.insert_one(log)
 
 
-
-# Test connection
+# Check MongoDB connection
 try:
     client.admin.command("ping")
     print("MongoDB connected successfully!")
 
 except Exception as e:
     print("MongoDB connection failed:", e)
-ion failed:", e)
+
